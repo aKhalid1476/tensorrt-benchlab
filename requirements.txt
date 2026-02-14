@@ -1,0 +1,5 @@
+# Base requirements
+numpy
+onnx
+# tensorrt  # Install via pip or system package manager
+# pycuda    # Required for some TensorRT scripts
