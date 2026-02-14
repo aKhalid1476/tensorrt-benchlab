@@ -1,0 +1,31 @@
+.telemetry-container {
+  background: #0f172a;
+  padding: 1.5rem;
+  border-radius: 8px;
+  border: 1px solid #334155;
+}
+
+.telemetry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.telemetry-header h3 {
+  color: #cbd5e1;
+  font-size: 1.1rem;
+}
+
+.telemetry-stats {
+  display: flex;
+  gap: 2rem;
+  font-size: 0.9rem;
+  color: #94a3b8;
+}
+
+.telemetry-stats span {
+  font-family: monospace;
+}
