@@ -58,3 +58,14 @@ Work in PR-style chunks:
 - Python 3.11+
 - Node 20+
 - Docker available
+
+## Hardware constraint (IMPORTANT)
+Local development machine is Apple Silicon (M2 Pro). No CUDA/TensorRT/NVML locally.
+Therefore:
+- controller must be CUDA-free and run on Mac
+- runner is the only component that uses CUDA/TensorRT/NVML and runs remotely on an NVIDIA GPU host
+
+## Architecture
+frontend -> controller -> runner -> controller -> frontend
+
+Controller stores results; runner executes benchmarks.

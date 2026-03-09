@@ -1,31 +1,38 @@
 version: '3.8'
 
 services:
-  backend:
+  # Controller service (Mac M2 compatible, no CUDA)
+  controller:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: controller/Dockerfile
+    container_name: tensorrt-benchlab-controller
     ports:
       - "8000:8000"
     volumes:
-      - ./backend/app:/app/app
-      - ./backend/data:/app/data
+      # Persist SQLite database
+      - ./data/controller:/app/data
+      # Mount code for development
+      - ./controller/app:/app/controller/app
+      - ./contracts:/app/contracts
     environment:
       - BENCHLAB_LOG_LEVEL=INFO
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+      - DATABASE_URL=sqlite:///app/data/benchlab.db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
     networks:
-      - benchlab-network
+      - benchlab
 
+  # Frontend (TODO - React + Vite)
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    container_name: tensorrt-benchlab-frontend
     ports:
       - "5173:5173"
     volumes:
@@ -34,10 +41,57 @@ services:
     environment:
       - VITE_API_URL=http://localhost:8000
     depends_on:
-      - backend
+      - controller
+    restart: unless-stopped
     networks:
-      - benchlab-network
+      - benchlab
+    # Uncomment when frontend Dockerfile is ready
+    profiles:
+      - full
 
 networks:
-  benchlab-network:
+  benchlab:
     driver: bridge
+
+volumes:
+  data:
+    driver: local
+
+# ==============================================================================
+# RUNNER SERVICE (GPU Required)
+# ==============================================================================
+#
+# The runner is NOT included in docker-compose because:
+# 1. It requires GPU passthrough (--gpus all)
+# 2. It typically runs on a separate GPU host (cloud instance, workstation)
+# 3. Multiple controllers can share one runner
+#
+# To run the runner on a GPU host:
+#
+#   # Build runner image
+#   docker build -t tensorrt-benchlab-runner -f runner/Dockerfile .
+#
+#   # Run with GPU access
+#   docker run -d --name runner \
+#     --gpus all \
+#     -p 8001:8001 \
+#     -v $(pwd)/cache:/app/cache \
+#     -e BENCHLAB_LOG_LEVEL=INFO \
+#     tensorrt-benchlab-runner
+#
+#   # Verify runner is healthy
+#   curl http://<gpu-host>:8001/health
+#   curl http://<gpu-host>:8001/version | jq .
+#
+# Then create runs via controller:
+#
+#   curl -X POST http://localhost:8000/runs \
+#     -H "Content-Type: application/json" \
+#     -d '{
+#       "runner_url": "http://<gpu-host-ip>:8001",
+#       "model_name": "resnet50",
+#       "engines": ["pytorch_cuda", "tensorrt"],
+#       "batch_sizes": [1, 4, 8, 16]
+#     }'
+#
+# ==============================================================================

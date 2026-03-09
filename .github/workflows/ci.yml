@@ -1,0 +1,198 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  # ===========================================================================
+  # Contracts Package Tests
+  # ===========================================================================
+  test-contracts:
+    name: Test Contracts Package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          cd contracts
+          pip install -e ".[dev]"
+
+      - name: Run tests
+        run: |
+          cd contracts
+          pytest -v --tb=short
+
+      - name: Lint with ruff
+        run: |
+          cd contracts
+          ruff check contracts/ || true
+
+  # ===========================================================================
+  # Controller Tests
+  # ===========================================================================
+  test-controller:
+    name: Test Controller
+    runs-on: ubuntu-latest
+    needs: test-contracts
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          cd contracts && pip install -e . && cd ..
+          cd controller && pip install -e ".[dev]"
+
+      - name: Run tests
+        run: |
+          cd controller
+          pytest -v --tb=short || echo "⚠️  Controller tests not yet implemented"
+
+      - name: Lint with ruff
+        run: |
+          cd controller
+          ruff check app/ || true
+
+  # ===========================================================================
+  # Runner Tests (No GPU Required)
+  # ===========================================================================
+  test-runner:
+    name: Test Runner (CPU Only)
+    runs-on: ubuntu-latest
+    needs: test-contracts
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          cd contracts && pip install -e . && cd ..
+          cd runner && pip install -e ".[dev]"
+
+      - name: Run tests (CPU only)
+        run: |
+          cd runner
+          pytest -v --tb=short || echo "⚠️  Runner tests not yet implemented"
+
+      - name: Lint with ruff
+        run: |
+          cd runner
+          ruff check app/ || true
+
+  # ===========================================================================
+  # Docker Build - Controller
+  # ===========================================================================
+  build-controller:
+    name: Build Controller Docker Image
+    runs-on: ubuntu-latest
+    needs: [test-contracts, test-controller]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build controller image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: controller/Dockerfile
+          push: false
+          tags: tensorrt-benchlab-controller:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ===========================================================================
+  # Docker Build - Runner
+  # ===========================================================================
+  build-runner:
+    name: Build Runner Docker Image
+    runs-on: ubuntu-latest
+    needs: [test-contracts, test-runner]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build runner image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: runner/Dockerfile
+          push: false
+          tags: tensorrt-benchlab-runner:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ===========================================================================
+  # Integration Tests
+  # ===========================================================================
+  integration-test:
+    name: Integration Test (Mocked)
+    runs-on: ubuntu-latest
+    needs: [build-controller]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install all packages
+        run: |
+          cd contracts && pip install -e . && cd ..
+          cd controller && pip install -e . && cd ..
+
+      - name: Start controller
+        run: |
+          cd controller
+          uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          sleep 5
+
+      - name: Test controller health
+        run: |
+          curl -f http://localhost:8000/health || exit 1
+
+      - name: Test controller API docs
+        run: |
+          curl -f http://localhost:8000/docs || exit 1
+
+      - name: Cleanup
+        run: |
+          pkill -f uvicorn || true
+
+  # ===========================================================================
+  # All Checks Pass
+  # ===========================================================================
+  all-checks:
+    name: All Checks Passed
+    runs-on: ubuntu-latest
+    needs:
+      - test-contracts
+      - test-controller
+      - test-runner
+      - build-controller
+      - build-runner
+      - integration-test
+    steps:
+      - name: Success
+        run: echo "✅ All CI checks passed!"

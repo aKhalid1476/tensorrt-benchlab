@@ -1,6 +1,7 @@
 """Benchmark API routes."""
 import asyncio
 import logging
+import time
 import uuid
 from datetime import datetime
 from typing import Dict
@@ -10,6 +11,10 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from ..bench.runner import BenchmarkRunner
 from ..schemas.bench import BenchmarkRequest, BenchmarkResult, BenchmarkRunResponse
 from ..storage.results_store import ResultsStore
+from ..telemetry.prometheus_metrics import (
+    benchmark_runs_active,
+    record_benchmark_run,
+)
 from ..utils.env import get_environment_metadata
 
 router = APIRouter()
@@ -22,12 +27,17 @@ active_runs: Dict[str, BenchmarkResult] = {}
 
 async def run_benchmark_task(run_id: str, request: BenchmarkRequest) -> None:
     """Background task to run benchmark."""
+    start_time = time.time()
+
     try:
         logger.info(
             f"event=benchmark_start run_id={run_id} model={request.model_name} "
             f"engine={request.engine_type} batches={request.batch_sizes}"
         )
         active_runs[run_id].status = "running"
+
+        # Increment active runs gauge
+        benchmark_runs_active.inc()
 
         runner = BenchmarkRunner()
         batch_results = await runner.run_benchmark(
@@ -46,10 +56,20 @@ async def run_benchmark_task(run_id: str, request: BenchmarkRequest) -> None:
         # Store result
         results_store.save(run_id, active_runs[run_id])
 
+        # Calculate duration
+        duration = time.time() - start_time
+
         logger.info(
             f"event=benchmark_complete run_id={run_id} "
-            f"results_count={len(batch_results)} duration_sec="
-            f"{(active_runs[run_id].completed_at - active_runs[run_id].created_at).total_seconds():.2f}"
+            f"results_count={len(batch_results)} duration_sec={duration:.2f}"
+        )
+
+        # Record Prometheus metrics
+        record_benchmark_run(
+            model=request.model_name,
+            engine=request.engine_type.value,
+            status="completed",
+            duration=duration,
         )
 
     except Exception as e:
@@ -60,6 +80,19 @@ async def run_benchmark_task(run_id: str, request: BenchmarkRequest) -> None:
         active_runs[run_id].status = "failed"
         active_runs[run_id].error_message = str(e)
         active_runs[run_id].completed_at = datetime.now()
+
+        # Record failed run
+        duration = time.time() - start_time
+        record_benchmark_run(
+            model=request.model_name,
+            engine=request.engine_type.value,
+            status="failed",
+            duration=duration,
+        )
+
+    finally:
+        # Decrement active runs gauge
+        benchmark_runs_active.dec()
 
 
 @router.post("/run", response_model=BenchmarkRunResponse)

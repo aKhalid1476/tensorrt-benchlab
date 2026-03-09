@@ -21,8 +21,8 @@ class BenchmarkRequest(BaseModel):
         default=[1, 4, 8, 16],
         description="List of batch sizes to test"
     )
-    num_iterations: int = Field(default=100, ge=1, description="Number of measured iterations")
-    warmup_iterations: int = Field(default=3, ge=0, description="Number of warmup iterations")
+    num_iterations: int = Field(default=50, ge=1, description="Number of measured iterations")
+    warmup_iterations: int = Field(default=10, ge=0, description="Number of warmup iterations")
 
 
 class EnvironmentMetadata(BaseModel):
