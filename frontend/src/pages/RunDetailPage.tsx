@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getRun, cancelRun, RunRecord, EngineResult } from '../api/client'
+import { getRun, cancelRun, RunRecord } from '../api/client'
 import {
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   BarChart,
   Bar,
   XAxis,
@@ -15,11 +15,25 @@ import {
 } from 'recharts'
 import '../styles/RunDetailPage.css'
 
+const CHART_COLORS = ['#f97316', '#6366f1', '#10b981', '#ec4899']
+
+const CHART_TOOLTIP_STYLE = {
+  backgroundColor: '#0d1117',
+  border: '1px solid rgba(148, 163, 184, 0.15)',
+  borderRadius: '10px',
+  color: '#e2e8f0',
+  fontSize: '13px',
+  boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+}
+
+const CHART_LEGEND_STYLE = { paddingTop: '12px', color: '#94a3b8', fontSize: '13px' }
+const AXIS_TICK = { fill: '#64748b', fontSize: 12 }
+const AXIS_LABEL_STYLE = { fill: '#475569', fontSize: 12 }
+
 export default function RunDetailPage() {
   const { runId } = useParams<{ runId: string }>()
   const navigate = useNavigate()
   const [run, setRun] = useState<RunRecord | null>(null)
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const fetchRun = async () => {
@@ -30,13 +44,8 @@ export default function RunDetailPage() {
       setRun(data)
       setError(null)
 
-      // Stop polling if run is complete
-      if (['succeeded', 'failed', 'cancelled'].includes(data.status)) {
-        setLoading(false)
-      }
     } catch (err) {
       setError('Failed to fetch run: ' + (err as Error).message)
-      setLoading(false)
     }
   }
 
@@ -237,40 +246,79 @@ export default function RunDetailPage() {
         <>
           <div className="chart-section">
             <h3>Latency (p50 & p95) vs Batch Size</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={latencyChartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="batch_size" label={{ value: 'Batch Size', position: 'insideBottom', offset: -5 }} />
-                <YAxis label={{ value: 'Latency (ms)', angle: -90, position: 'insideLeft' }} />
-                <Tooltip />
-                <Legend />
+            <p className="chart-subtitle">Lower is better — p95 shows tail latency</p>
+            <ResponsiveContainer width="100%" height={320}>
+              <AreaChart data={latencyChartData} margin={{ top: 10, right: 24, left: 16, bottom: 36 }}>
+                <defs>
+                  {engineNames.map((engine, idx) => (
+                    <linearGradient key={engine} id={`grad-${idx}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={CHART_COLORS[idx % CHART_COLORS.length]} stopOpacity={0.18} />
+                      <stop offset="95%" stopColor={CHART_COLORS[idx % CHART_COLORS.length]} stopOpacity={0} />
+                    </linearGradient>
+                  ))}
+                </defs>
+                <CartesianGrid strokeDasharray="0" stroke="rgba(148,163,184,0.08)" vertical={false} />
+                <XAxis
+                  dataKey="batch_size"
+                  tick={AXIS_TICK}
+                  tickLine={false}
+                  axisLine={{ stroke: 'rgba(148,163,184,0.15)' }}
+                  label={{ value: 'Batch Size', position: 'insideBottom', offset: -20, style: AXIS_LABEL_STYLE }}
+                />
+                <YAxis
+                  tick={AXIS_TICK}
+                  tickLine={false}
+                  axisLine={false}
+                  label={{ value: 'Latency (ms)', angle: -90, position: 'insideLeft', offset: 8, style: AXIS_LABEL_STYLE }}
+                />
+                <Tooltip contentStyle={CHART_TOOLTIP_STYLE} cursor={{ stroke: 'rgba(148,163,184,0.15)', strokeWidth: 1 }} />
+                <Legend wrapperStyle={CHART_LEGEND_STYLE} />
                 {engineNames.map((engine, idx) => (
-                  <Line
+                  <Area
                     key={`${engine}_p50`}
                     type="monotone"
                     dataKey={`${engine}_p50`}
-                    stroke={['#8884d8', '#82ca9d', '#ffc658'][idx % 3]}
+                    stroke={CHART_COLORS[idx % CHART_COLORS.length]}
+                    strokeWidth={2.5}
+                    fill={`url(#grad-${idx})`}
+                    dot={{ r: 4, fill: CHART_COLORS[idx % CHART_COLORS.length], strokeWidth: 0 }}
+                    activeDot={{ r: 6, strokeWidth: 0 }}
                     name={`${engine} p50`}
                   />
                 ))}
-              </LineChart>
+              </AreaChart>
             </ResponsiveContainer>
           </div>
 
           <div className="chart-section">
             <h3>Throughput vs Batch Size</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={throughputChartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="batch_size" label={{ value: 'Batch Size', position: 'insideBottom', offset: -5 }} />
-                <YAxis label={{ value: 'Throughput (req/s)', angle: -90, position: 'insideLeft' }} />
-                <Tooltip />
-                <Legend />
+            <p className="chart-subtitle">Higher is better — images processed per second</p>
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={throughputChartData} margin={{ top: 10, right: 24, left: 16, bottom: 36 }} barCategoryGap="35%">
+                <CartesianGrid strokeDasharray="0" stroke="rgba(148,163,184,0.08)" vertical={false} />
+                <XAxis
+                  dataKey="batch_size"
+                  tick={AXIS_TICK}
+                  tickLine={false}
+                  axisLine={{ stroke: 'rgba(148,163,184,0.15)' }}
+                  label={{ value: 'Batch Size', position: 'insideBottom', offset: -20, style: AXIS_LABEL_STYLE }}
+                />
+                <YAxis
+                  tick={AXIS_TICK}
+                  tickLine={false}
+                  axisLine={false}
+                  label={{ value: 'req / sec', angle: -90, position: 'insideLeft', offset: 8, style: AXIS_LABEL_STYLE }}
+                />
+                <Tooltip contentStyle={CHART_TOOLTIP_STYLE} cursor={{ fill: 'rgba(148,163,184,0.05)' }} />
+                <Legend wrapperStyle={CHART_LEGEND_STYLE} />
                 {engineNames.map((engine, idx) => (
                   <Bar
                     key={engine}
                     dataKey={engine}
-                    fill={['#8884d8', '#82ca9d', '#ffc658'][idx % 3]}
+                    fill={CHART_COLORS[idx % CHART_COLORS.length]}
+                    radius={[6, 6, 0, 0]}
+                    maxBarSize={64}
+                    name={engine}
                   />
                 ))}
               </BarChart>
@@ -325,27 +373,47 @@ export default function RunDetailPage() {
       {run.telemetry && run.telemetry.samples.length > 0 && (
         <div className="telemetry-section">
           <h3>GPU Telemetry</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <LineChart data={run.telemetry.samples}>
-              <CartesianGrid strokeDasharray="3 3" />
+          <p className="chart-subtitle">Utilization sampled at 200ms intervals during the run</p>
+          <ResponsiveContainer width="100%" height={260}>
+            <AreaChart data={run.telemetry.samples} margin={{ top: 10, right: 24, left: 16, bottom: 36 }}>
+              <defs>
+                <linearGradient id="grad-gpu" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
+                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="0" stroke="rgba(148,163,184,0.08)" vertical={false} />
               <XAxis
                 dataKey="t_ms"
-                label={{ value: 'Time (ms)', position: 'insideBottom', offset: -5 }}
+                tick={AXIS_TICK}
+                tickLine={false}
+                axisLine={{ stroke: 'rgba(148,163,184,0.15)' }}
                 tickFormatter={(val) => (val / 1000).toFixed(1) + 's'}
+                label={{ value: 'Time (s)', position: 'insideBottom', offset: -20, style: AXIS_LABEL_STYLE }}
               />
-              <YAxis label={{ value: 'GPU Util (%)', angle: -90, position: 'insideLeft' }} />
+              <YAxis
+                domain={[0, 100]}
+                tick={AXIS_TICK}
+                tickLine={false}
+                axisLine={false}
+                label={{ value: 'GPU Util %', angle: -90, position: 'insideLeft', offset: 8, style: AXIS_LABEL_STYLE }}
+              />
               <Tooltip
-                labelFormatter={(val) => `Time: ${(val / 1000).toFixed(1)}s`}
+                contentStyle={CHART_TOOLTIP_STYLE}
+                cursor={{ stroke: 'rgba(148,163,184,0.15)', strokeWidth: 1 }}
+                labelFormatter={(val) => `t = ${(val / 1000).toFixed(1)}s`}
               />
-              <Legend />
-              <Line
+              <Area
                 type="monotone"
                 dataKey="gpu_utilization_percent"
-                stroke="#8884d8"
-                name="GPU Utilization %"
+                stroke="#6366f1"
+                strokeWidth={2}
+                fill="url(#grad-gpu)"
+                name="GPU Util %"
                 dot={false}
+                activeDot={{ r: 4, strokeWidth: 0 }}
               />
-            </LineChart>
+            </AreaChart>
           </ResponsiveContainer>
         </div>
       )}
